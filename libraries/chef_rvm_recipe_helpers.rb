@@ -81,8 +81,9 @@ class Chef
             action :run
           end
 
-          not_if  rvm_wrap_cmd(
+          not_if rvm_wrap_cmd(
             %{type rvm | head -1 | grep -q '^rvm is a function$'}, user_dir)
+          not_if 'which rvm'
         end
         i.run_action(:run) if install_now
       end
