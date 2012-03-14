@@ -24,15 +24,20 @@ class Chef
     module ShellHelpers
       # stub to satisfy RVMRubygems (library load order not guarenteed)
     end
+    module SetHelpers
+      # stub to satisfy RVMRubygems (library load order not guarenteed)
+    end
   end
 
   class Provider
     class Package
       class RVMRubygems < Chef::Provider::Package::Rubygems
         include Chef::RVM::ShellHelpers
+        include Chef::RVM::SetHelpers
 
         class RVMGemEnvironment < AlternateGemEnvironment
           include Chef::RVM::ShellHelpers
+          include Chef::RVM::SetHelpers
 
           attr_reader :ruby_strings, :user
 
@@ -44,7 +49,7 @@ class Chef
 
           def gem_paths
             cmd = "rvm #{ruby_strings.join(',')} "
-            cmd << "exec #{@gem_binary_location} env gempath"
+            cmd << "#{rvm_do(user)} #{@gem_binary_location} env gempath"
 
             if user
               user_dir    = Etc.getpwnam(user).dir
@@ -64,7 +69,7 @@ class Chef
 
           def gem_platforms
             cmd = "rvm #{ruby_strings.join(',')} "
-            cmd << "exec #{@gem_binary_location} env"
+            cmd << "#{rvm_do(user)} #{@gem_binary_location} env"
 
             if user
               user_dir    = Etc.getpwnam(user).dir
@@ -118,9 +123,9 @@ class Chef
         def install_package(name, version)
           # ensure each ruby is installed and gemset exists
           ruby_strings.each do |rubie|
-            next if rubie = 'system'
+            next if rubie == 'system'
             e = rvm_environment rubie do
-              user    new_resource.user if new_user.respond_to?("user")
+              user    gem_env.user if gem_env.user
               action :nothing
             end
             e.run_action(:create)
@@ -131,16 +136,21 @@ class Chef
         end
 
         def install_via_gem_command(name, version)
-          src = @new_resource.source &&
-            "  --source=#{@new_resource.source} --source=http://rubygems.org"
+          # Handle installing from a local file.
+          if source_is_remote?
+            src = @new_resource.source &&
+              "  --source=#{@new_resource.source} --source=http://rubygems.org"
+          else
+            name = @new_resource.source
+          end
 
-          cmd = %{rvm #{ruby_strings.join(',')} #{gem_binary_path}}
+          cmd = %{rvm #{ruby_strings.join(',')} #{rvm_do(gem_env.user)} #{gem_binary_path}}
           cmd << %{ install #{name} -q --no-rdoc --no-ri -v "#{version}"}
           cmd << %{#{src}#{opts}}
 
-          if new_resource.respond_to?("user") && new_resource.user
-            user_dir    = Etc.getpwnam(new_resource.user).dir
-            environment = { 'USER' => new_resource.user, 'HOME' => user_dir }
+          if gem_env.user
+            user_dir    = Etc.getpwnam(gem_env.user).dir
+            environment = { 'USER' => gem_env.user, 'HOME' => user_dir }
           else
             user_dir    = nil
             environment = nil
@@ -154,7 +164,7 @@ class Chef
         end
 
         def uninstall_via_gem_command(name, version)
-          cmd = %{rvm #{ruby_strings.join(',')} #{gem_binary_path}}
+          cmd = %{rvm #{ruby_strings.join(',')} #{rvm_do(gem_env.user)} #{gem_binary_path}}
           cmd << %{ uninstall #{name} -q -x -I}
           if version
             cmd << %{ -v "#{version}"#{opts}}
@@ -162,9 +172,9 @@ class Chef
             cmd << %{ -a#{opts}}
           end
 
-          if new_resource.respond_to?("user") && new_resource.user
-            user_dir    = Etc.getpwnam(new_resource.user).dir
-            environment = { 'USER' => new_resource.user, 'HOME' => user_dir }
+          if gem_env.user
+            user_dir    = Etc.getpwnam(gem_env.user).dir
+            environment = { 'USER' => gem_env.user, 'HOME' => user_dir }
           else
             user_dir    = nil
             environment = nil
